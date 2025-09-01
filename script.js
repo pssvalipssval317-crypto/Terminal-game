@@ -1,7 +1,118 @@
 /* script.js
    Real-sensor mission terminal (40 missions)
    NOTE: Must be served via HTTPS or localhost, and user must Allow permissions.
-*/
+const output = document.getElementById("output");
+function log(msg) { output.textContent = msg; }
+
+// 1. Location
+function askLocation() {
+  navigator.geolocation.getCurrentPosition(
+    pos => log("Location allowed ✅ Lat: " + pos.coords.latitude),
+    err => log("Location denied ❌ " + err.message)
+  );
+}
+
+// 2. Camera
+function askCamera() {
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(() => log("Camera allowed ✅"))
+    .catch(err => log("Camera denied ❌ " + err));
+}
+
+// 3. Microphone
+function askMicrophone() {
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(() => log("Microphone allowed ✅"))
+    .catch(err => log("Microphone denied ❌ " + err));
+}
+
+// 4. Camera + Microphone
+function askCamMic() {
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(() => log("Camera + Microphone allowed ✅"))
+    .catch(err => log("Denied ❌ " + err));
+}
+
+// 5. Orientation
+function askOrientation() {
+  if (DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) {
+    DeviceOrientationEvent.requestPermission()
+      .then(res => log("Orientation: " + res))
+      .catch(err => log("Error ❌ " + err));
+  } else {
+    log("Orientation events will stream silently (if supported).");
+  }
+}
+
+// 6. Clipboard
+async function askClipboard() {
+  try {
+    await navigator.clipboard.writeText("Hello from your site!");
+    const text = await navigator.clipboard.readText();
+    log("Clipboard allowed ✅ Copied: " + text);
+  } catch (err) {
+    log("Clipboard denied ❌ " + err);
+  }
+}
+
+// 7. Notification
+function askNotification() {
+  Notification.requestPermission()
+    .then(res => log("Notification: " + res));
+}
+
+// 8. Fullscreen
+function askFullscreen() {
+  document.body.requestFullscreen()
+    .then(() => log("Fullscreen enabled ✅"))
+    .catch(err => log("Fullscreen denied ❌ " + err));
+}
+
+// 9. Wake Lock
+async function askWakeLock() {
+  try {
+    const lock = await navigator.wakeLock.request("screen");
+    log("Wake Lock allowed ✅ Screen will stay awake");
+    lock.addEventListener("release", () => log("Wake Lock released"));
+  } catch (err) {
+    log("Wake Lock denied ❌ " + err);
+  }
+}
+
+// 10. Bluetooth
+async function askBluetooth() {
+  try {
+    await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+    log("Bluetooth allowed ✅");
+  } catch (err) {
+    log("Bluetooth denied ❌ " + err);
+  }
+}
+
+// 11. USB
+async function askUSB() {
+  try {
+    await navigator.usb.requestDevice({ filters: [] });
+    log("USB allowed ✅");
+  } catch (err) {
+    log("USB denied ❌ " + err);
+  }
+}
+
+// 12. NFC
+async function askNFC() {
+  if ("nfc" in navigator) {
+    try {
+      await navigator.nfc.watch(msg => log("NFC data: " + msg));
+      log("NFC allowed ✅");
+    } catch (err) {
+      log("NFC denied ❌ " + err);
+    }
+  } else {
+    log("NFC not supported on this browser/device ❌");
+  }
+}
+
 
 const output = document.getElementById('output');
 const cmd = document.getElementById('cmd');

@@ -12,6 +12,24 @@
       <h1>Lambda Terminal — Real Mission Mode</h1>
       <div id="status">Score: <span id="score">0</span> • Permissions: <span id="perms">unknown</span></div>
     </header>
+  <title>Permission Tester</title>
+  <h1>Permission Tester</h1>
+  <div class="buttons">
+    <button onclick="askLocation()">📍 Location</button>
+    <button onclick="askCamera()">📷 Camera</button>
+    <button onclick="askMicrophone()">🎤 Microphone</button>
+    <button onclick="askCamMic()">🎥 Camera + Microphone</button>
+    <button onclick="askOrientation()">📱 Orientation</button>
+    <button onclick="askClipboard()">📋 Clipboard</button>
+    <button onclick="askNotification()">🔔 Notification</button>
+    <button onclick="askFullscreen()">🖥️ Fullscreen</button>
+    <button onclick="askWakeLock()">💡 Wake Lock</button>
+    <button onclick="askBluetooth()">🔵 Bluetooth</button>
+    <button onclick="askUSB()">🔌 USB</button>
+    <button onclick="askNFC()">📶 NFC</button>
+  </div>
+  <p id="output"></p>
+  <script src="script.js"></script>
 
     <section id="screen" role="application" aria-label="terminal">
       <pre id="output" aria-live="polite"></pre>

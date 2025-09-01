@@ -18,3 +18,42 @@ pre#output{white-space:pre-wrap;min-height:320px;margin:0;padding:8px;overflow:a
 button{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:6px;color:var(--fg)}
 small{display:block;margin-top:8px;color:var(--muted)}
 code{background:rgba(255,255,255,0.02);padding:2px 6px;border-radius:4px}
+
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #111;
+  color: #eee;
+  padding: 20px;
+}
+
+h1 {
+  margin-bottom: 20px;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+button {
+  background: #222;
+  color: #eee;
+  border: 1px solid #555;
+  padding: 10px 15px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+button:hover {
+  background: #444;
+}
+
+#output {
+  margin-top: 20px;
+  font-size: 14px;
+  color: #0f0;
+}
