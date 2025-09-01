@@ -1,53 +1,1053 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Lambda Terminal — Real Missions</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sensor Task Game — 40 Missions</title>
+<style>
+  :root{--bg:#000;--fg:#7CFF7C;--muted:#9FFFB1;--accent:#00E676}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:ui-monospace,monospace}
+  main{max-width:1000px;margin:0 auto;padding:16px}
+  header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  h1{margin:0;font-size:18px}
+  #status{color:var(--muted);font-size:13px}
+  #screen{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06)}
+  pre#output{white-space:pre-wrap;min-height:420px;margin:0;padding:10px;overflow:auto}
+  #controls{display:flex;gap:8px;margin-top:10px}
+  input#cmd{flex:1;background:transparent;border:1px solid rgba(255,255,255,0.04);padding:8px;border-radius:6px;color:var(--fg);outline:none}
+  button{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:6px;color:var(--fg);cursor:pointer}
+  .muted{color:var(--muted)}
+  .danger{color:#ff6b6b}
+  .big { font-size: 16px; padding: 12px 16px; }
+  #video, #canvas { display:none; }
+  #overlay { position:fixed; left:0; right:0; top:0; bottom:0; background:rgba(0,0,0,0.85); color:var(--fg); display:flex; align-items:center; justify-content:center; z-index:9999; flex-direction:column; gap:12px; padding:20px; }
+  #overlay.hidden { display:none; }
+  .locked { opacity:0.4; pointer-events:none; }
+  .warn { color: #ffd166; }
+</style>
 </head>
 <body>
-  <main id="app">
-    <header>
-      <h1>Lambda Terminal — Real Mission Mode</h1>
-      <div id="status">Score: <span id="score">0</span> • Permissions: <span id="perms">unknown</span></div>
-    </header>
-  <title>Permission Tester</title>
-  <h1>Permission Tester</h1>
-  <div class="buttons">
-    <button onclick="askLocation()">📍 Location</button>
-    <button onclick="askCamera()">📷 Camera</button>
-    <button onclick="askMicrophone()">🎤 Microphone</button>
-    <button onclick="askCamMic()">🎥 Camera + Microphone</button>
-    <button onclick="askOrientation()">📱 Orientation</button>
-    <button onclick="askClipboard()">📋 Clipboard</button>
-    <button onclick="askNotification()">🔔 Notification</button>
-    <button onclick="askFullscreen()">🖥️ Fullscreen</button>
-    <button onclick="askWakeLock()">💡 Wake Lock</button>
-    <button onclick="askBluetooth()">🔵 Bluetooth</button>
-    <button onclick="askUSB()">🔌 USB</button>
-    <button onclick="askNFC()">📶 NFC</button>
-  </div>
-  <p id="output"></p>
-  <script src="script.js"></script>
+<main>
+  <header>
+    <h1>Sensor Task Game — 40 Missions</h1>
+    <div id="status">Score: <span id="score">0</span> • Fouls: <span id="foul">0</span></div>
+  </header>
 
-    <section id="screen" role="application" aria-label="terminal">
-      <pre id="output" aria-live="polite"></pre>
+  <section id="screen" role="application" aria-label="terminal">
+    <pre id="output" aria-live="polite"></pre>
 
-      <div id="prompt-line">
-        <span class="prompt">λ&gt;</span>
-        <input id="cmd" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
-               placeholder="Type command (help, missions, mission1 ... mission40)" />
-        <button id="runBtn">Run</button>
-      </div>
-      <small id="tip">Tip: After allowing permissions, type <code>missions</code> to list missions.</small>
-    </section>
+    <div id="controls">
+      <button id="startBtn" class="big">Start Game (ask permissions)</button>
+      <button id="nextBtn" class="big">Next Task</button>
+      <button id="missionsBtn">List Missions</button>
+      <button id="resetBtn" class="danger">Reset Game</button>
+    </div>
+    <small class="muted">Tip: Start Game first to grant permissions; tasks use camera, mic, motion & location if available.</small>
+  </section>
 
-    <!-- Hidden video & canvas used for camera analysis -->
-    <video id="camVideo" autoplay playsinline muted style="display:none"></video>
-    <canvas id="camCanvas" style="display:none"></canvas>
-  </main>
+  <!-- Hidden elements used for sensor capture -->
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</main>
 
-  <script src="script.js"></script>
+<div id="overlay" class="hidden">
+  <div id="overlayText"></div>
+  <button id="overlayClose">Close</button>
+</div>
+
+<script>
+/* ========= Game engine with 40 tasks & unique punishments =========
+   - Paste entire file into index.html
+   - Start Game (user gesture) triggers permission requests
+   - Each mission tries to use sensors (camera, mic, motion, geolocation)
+   - If unavailable, the mission falls back to a manual confirm step
+   - Unique punishments implemented as game-state effects (score penalties, locks, timers, resets)
+*/
+
+// --------- Utility & state ----------
+const output = document.getElementById('output');
+const startBtn = document.getElementById('startBtn');
+const nextBtn = document.getElementById('nextBtn');
+const missionsBtn = document.getElementById('missionsBtn');
+const resetBtn = document.getElementById('resetBtn');
+const scoreEl = document.getElementById('score');
+const foulEl = document.getElementById('foul');
+const overlay = document.getElementById('overlay');
+const overlayText = document.getElementById('overlayText');
+const overlayClose = document.getElementById('overlayClose');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+
+let score = 0;
+let foulCount = 0;
+let currentIndex = 0;
+let lockedUntil = 0; // timestamp while input locked (ms)
+let rewardsDisabled = false;
+let nextTimeoutMultiplier = 1; // punishment can increase speed
+let punishmentsSpecialApplied = new Set(); // track some one-time punishments
+
+function println(s='') { output.textContent += s + '\n'; output.scrollTop = output.scrollHeight; }
+function setScore(n){ score = n; scoreEl.textContent = score; }
+function addScore(n){ score += n; setScore(score); }
+function addFoul(){ foulCount++; foulEl.textContent = foulCount; }
+function showOverlay(msg){ overlayText.innerText = msg; overlay.classList.remove('hidden'); }
+function hideOverlay(){ overlay.classList.add('hidden'); }
+
+// --------- Sensor helpers ----------
+let cameraStream = null;
+let micStream = null;
+let audioCtx = null;
+let analyser = null;
+let dataArray = null;
+let motionActive = false;
+let motionHandler = null;
+let motionCount = 0;
+let faceDetectorAvailable = ('FaceDetector' in window);
+
+async function requestCamera(){
+  if (cameraStream) return cameraStream;
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = cameraStream;
+    await video.play().catch(()=>{});
+    println('[permission] Camera allowed.');
+    return cameraStream;
+  } catch(e){
+    println('[permission] Camera denied or unavailable.');
+    cameraStream = null;
+    throw e;
+  }
+}
+async function stopCamera(){
+  if (!cameraStream) return;
+  cameraStream.getTracks().forEach(t => t.stop());
+  cameraStream = null;
+  video.srcObject = null;
+}
+
+async function requestMic(){
+  if (micStream) return micStream;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(micStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    source.connect(analyser);
+    println('[permission] Microphone allowed.');
+    return micStream;
+  } catch(e){
+    println('[permission] Microphone denied or unavailable.');
+    micStream = null;
+    throw e;
+  }
+}
+function stopMic(){
+  if (!micStream) return;
+  micStream.getTracks().forEach(t => t.stop());
+  micStream = null;
+  if (audioCtx) { audioCtx.close(); audioCtx = null; analyser = null; dataArray = null; }
+}
+
+// brightness measurement (avg luminance)
+async function measureBrightness(duration=1500, interval=200){
+  try {
+    await requestCamera();
+  } catch { return null; }
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth || 320;
+  canvas.height = video.videoHeight || 240;
+  const samples = Math.max(1, Math.floor(duration/interval));
+  let total = 0;
+  for (let i=0;i<samples;i++){
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    let sum=0;
+    for (let p=0;p<img.length;p+=4) sum += (0.2126*img[p] + 0.7152*img[p+1] + 0.0722*img[p+2]);
+    total += sum / (canvas.width*canvas.height);
+    await new Promise(r=>setTimeout(r,interval));
+  }
+  return total / samples; // 0..255
+}
+
+// sound RMS over short window
+async function measureSoundRMS(duration=1500, interval=200){
+  try {
+    await requestMic();
+  } catch { return null; }
+  const samples = Math.max(1, Math.floor(duration/interval));
+  let total = 0;
+  for (let i=0;i<samples;i++){
+    analyser.getByteTimeDomainData(dataArray);
+    let sum=0;
+    for (let j=0;j<dataArray.length;j++){
+      const v = (dataArray[j]-128)/128;
+      sum += v*v;
+    }
+    const rms = Math.sqrt(sum / dataArray.length);
+    total += rms;
+    await new Promise(r=>setTimeout(r,interval));
+  }
+  return total / samples; // ~0..0.5
+}
+
+// start simple motion counter (shake events)
+function startMotionCounting(){
+  if (motionActive) return;
+  motionCount = 0;
+  motionHandler = (ev) => {
+    const a = ev.accelerationIncludingGravity || ev.acceleration || {};
+    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
+    const now = Date.now();
+    if (mag > 15) motionCount++;
+  };
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().then(res=>{
+      if (res === 'granted') window.addEventListener('devicemotion', motionHandler);
+    }).catch(()=>{});
+  } else {
+    window.addEventListener('devicemotion', motionHandler);
+  }
+  motionActive = true;
+}
+function stopMotionCounting(){
+  if (!motionActive) return;
+  window.removeEventListener('devicemotion', motionHandler);
+  motionActive = false;
+}
+
+// geo
+function getPosition(timeout=7000){
+  return new Promise(resolve=>{
+    if (!('geolocation' in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition(pos => resolve(pos), err => resolve(null), { timeout });
+  });
+}
+
+// face detect wrapper
+async function detectFace(timeout=2500){
+  try {
+    await requestCamera();
+  } catch { return {available:false}; }
+  if (!faceDetectorAvailable) return {available:false};
+  const fd = new FaceDetector({ fastMode:true, maxDetectedFaces:1 });
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth || 320;
+  canvas.height = video.videoHeight || 240;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    try {
+      const faces = await fd.detect(canvas);
+      if (faces && faces.length > 0) return {available:true, faces};
+    } catch(e){ break; }
+    await new Promise(r=>setTimeout(r,150));
+  }
+  return {available:true, faces:[]};
+}
+
+// wait for a user enter/confirm (used when fallback)
+function waitUserConfirm(timeout=10000){
+  println('Type CONFIRM and press Enter to confirm you performed the action (or wait for timeout).');
+  return new Promise(resolve=>{
+    const handler = (e)=>{
+      if (e.key === 'Enter') {
+        const val = cmdInput.value.trim();
+        cmdInput.value = '';
+        if (val.toLowerCase() === 'confirm') {
+          cleanup();
+          resolve(true);
+        } else {
+          cleanup();
+          resolve(false);
+        }
+      }
+    };
+    const cleanup = ()=>{ document.removeEventListener('keydown', handler); };
+    document.addEventListener('keydown', handler);
+    setTimeout(()=>{ cleanup(); resolve(false); }, timeout);
+  });
+}
+
+// A tiny in-page text input for confirmations (not visible unless needed)
+const cmdInput = document.createElement('input');
+cmdInput.style.position = 'fixed';
+cmdInput.style.left = '-9999px';
+document.body.appendChild(cmdInput);
+
+// ------- Game tasks (40) --------
+// Each task: id, title, desc, reward, check() -> Promise<boolean>, punishment() -> applies unique effect
+const tasks = [];
+
+// Helper to register task
+function addTask(id, title, desc, reward, checkFn, punishmentFn){
+  tasks.push({ id, title, desc, reward, checkFn, punishmentFn });
+}
+
+/* -------------------------
+   Create 40 tasks below. 
+   Many use sensors; if not available, they fallback to manual confirm.
+   Each punishment is unique and impactful (score loss, lockouts, resets, UI effects).
+   ------------------------- */
+
+// Task 1: Dark room (camera brightness)
+addTask(1, 'Dark room', 'Sit in a dark place. App checks camera brightness.', 10,
+  async ()=> {
+    const lum = await measureBrightness(1800, 250);
+    if (lum === null) { println('Camera unavailable — fallback confirm.'); return await fallbackConfirm(); }
+    println(`Brightness: ${lum.toFixed(1)}`);
+    return lum < 35;
+  },
+  async ()=> { // punishment: force "blinding" screen (white) for 8s and -20 pts
+    println('Punishment: Blinding mode ON for 8s (-20).');
+    addScore(-20);
+    const orig = document.body.style.background;
+    document.body.style.background = '#fff';
+    document.body.style.color = '#000';
+    await delay(8000);
+    document.body.style.background = orig || '';
+    document.body.style.color = '';
+  }
+);
+
+// Task 2: Silent for 30s (mic)
+addTask(2, 'Silent 30s', 'Remain silent for 30 seconds. Mic measures ambient noise.', 15,
+  async ()=> {
+    const rms = await measureSoundRMS(30000, 600);
+    if (rms === null) { println('Mic unavailable — fallback confirm.'); return await fallbackConfirm(); }
+    println(`Avg RMS: ${rms.toFixed(4)}`);
+    return rms < 0.018;
+  },
+  async ()=>{ // punishment: lock keyboard input for 30s & -15 pts
+    println('Punishment: Input locked for 30s (-15).');
+    addScore(-15);
+    lockedUntil = Date.now() + 30000;
+    lockUIFor(30000, 'Input locked due to failure');
+  }
+);
+
+// Task 3: Hold still 20s (motion)
+addTask(3, 'Hold still', 'Hold device steady for 20 seconds.', 20,
+  async ()=> {
+    try {
+      // measure motion: small fluctuations allowed
+      let moved=false;
+      function handler(ev){
+        const a = ev.accelerationIncludingGravity || ev.acceleration || {};
+        const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
+        if (mag > 4) moved = true;
+      }
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+        const res = await DeviceMotionEvent.requestPermission().catch(()=>null);
+        if (res!=='granted') return await fallbackConfirm();
+      }
+      window.addEventListener('devicemotion', handler);
+      await delay(20000);
+      window.removeEventListener('devicemotion', handler);
+      return !moved;
+    } catch(e){
+      return await fallbackConfirm();
+    }
+  },
+  async ()=>{ // punishment: lose half of current score
+    const lost = Math.floor(score/2);
+    println(`Punishment: Lose half your score (${lost}).`);
+    addScore(-lost);
+  }
+);
+
+// Task 4: Flat device (orientation)
+addTask(4,'Flat device','Place phone flat (screen up) for 8 seconds.', 15,
+  async ()=> {
+    const orient = await readOrientationOnce(3000);
+    if (!orient) return await fallbackConfirm();
+    const beta = orient.beta || 0;
+    // beta near 0 when flat facing up
+    println(`Orientation beta: ${beta.toFixed(1)}`);
+    return Math.abs(beta) < 20;
+  },
+  async ()=>{ // punishment: next task timer x2
+    println('Punishment: Next task timers will be 2x faster for 3 rounds.');
+    nextTimeoutMultiplier = 0.5; // make next tasks faster (punishment)
+    setTimeout(()=>{ nextTimeoutMultiplier = 1; }, 3*60000); // revert after 3 minutes
+  }
+);
+
+// Task 5: Min brightness on screen (manual check + camera)
+addTask(5,'Low screen brightness','Set your screen brightness to minimum and confirm.', 10,
+  async ()=> {
+    // Can't read device brightness; use camera as proxy: point camera at screen
+    const lum = await measureBrightness(1500, 300).catch(()=>null);
+    if (lum === null) return await fallbackConfirm();
+    println(`Measured screen brightness (proxy): ${lum.toFixed(1)}`);
+    return lum < 50;
+  },
+  async ()=>{ // punishment: instant -30 points and a warning strike
+    println('Punishment: -30 points and 1 foul strike.');
+    addScore(-30); addFoul();
+  }
+);
+
+// Task 6: Point to sky (light high)
+addTask(6,'Point to sky','Point camera to bright sky for 3s', 20,
+  async ()=> {
+    const lum = await measureBrightness(1500,250).catch(()=>null);
+    if (lum === null) return await fallbackConfirm();
+    println(`Lum: ${lum.toFixed(1)}`);
+    return lum > 120;
+  },
+  async ()=>{ // punishment: reset progress to task 1
+    println('Punishment: Progress reset to Task 1.');
+    currentIndex = 0;
+  }
+);
+
+// Task 7: Exactly 3 shakes
+addTask(7,'Three shakes','Shake device roughly 3 times in 8 seconds', 25,
+  async ()=> {
+    startMotionCounting();
+    motionCount = 0;
+    await delay(8000);
+    stopMotionCounting();
+    println(`Shakes detected: ${motionCount}`);
+    return motionCount === 3;
+  },
+  async ()=>{ // punishment: spam message until user presses confirm 10 times
+    println('Punishment: You must press CONFIRM 10 times in console to clear.');
+    for (let i=1;i<=10;i++){
+      println(`Type CONFIRM and press Enter (${i}/10)`);
+      const ok = await manualConfirm(20000);
+      if (!ok) { println('Timeout — applying extra penalty.'); addScore(-10); break; }
+    }
+  }
+);
+
+// Task 8: Do not touch screen for 60s (lock)
+addTask(8,'No touch 60s','Do not touch screen for 60 seconds', 50,
+  async ()=> {
+    println('Do not touch screen for 60s. Timer started.');
+    let touched=false;
+    function touchHandler(){ touched = true; }
+    window.addEventListener('touchstart', touchHandler, {passive:true});
+    await delay(60000);
+    window.removeEventListener('touchstart', touchHandler);
+    return !touched;
+  },
+  async ()=>{ // punishment: permanent -100 points + 1 strike
+    println('Punishment: -100 points and a strike.');
+    addScore(-100); addFoul();
+  }
+);
+
+// Task 9: Quiet environment below threshold for 12s
+addTask(9,'Quiet 12s','Keep ambient noise low for 12s', 30,
+  async ()=> {
+    const rms = await measureSoundRMS(12000, 300).catch(()=>null);
+    if (rms === null) return await fallbackConfirm();
+    println(`Avg RMS: ${rms.toFixed(4)}`);
+    return rms < 0.015;
+  },
+  async ()=>{ // punishment: half future rewards until next success
+    println('Punishment: Rewards halved until next success.');
+    rewardsDisabled = 'halfRewards';
+  }
+);
+
+// Task 10: Face present
+addTask(10,'Face present','Show your face to the camera', 15,
+  async ()=> {
+    const res = await detectFace(3000);
+    if (!res.available) return await fallbackConfirm();
+    return (res.faces && res.faces.length > 0);
+  },
+  async ()=>{ // punishment: -40 points
+    println('Punishment: -40 points.');
+    addScore(-40);
+  }
+);
+
+// Task 11: GPS available
+addTask(11,'Share location','Allow geolocation and show current position', 12,
+  async ()=> {
+    const pos = await getPosition(6000);
+    if (!pos) return false;
+    println(`Lat: ${pos.coords.latitude.toFixed(5)}, Lon: ${pos.coords.longitude.toFixed(5)}`);
+    return true;
+  },
+  async ()=>{ // punishment: -20 and disable GPS rewards for 2 rounds
+    println('Punishment: -20 points and GPS tasks disabled briefly.');
+    addScore(-20);
+    punishmentsSpecialApplied.add('disableGPS');
+    setTimeout(()=>punishmentsSpecialApplied.delete('disableGPS'), 2*60000);
+  }
+);
+
+// Task 12: Memorize number
+addTask(12,'Memory test','Memorize 7-2-9. After 4s type it back', 10,
+  async ()=> {
+    println('Memorize: 7-2-9');
+    await delay(4000);
+    const ok = await promptConfirm('Type the code 7-2-9 now (exact):', 10000, '7-2-9');
+    return ok;
+  },
+  async ()=>{ println('Punishment: -10 points and speed up next task.'); addScore(-10); nextTimeoutMultiplier = 0.6; setTimeout(()=>nextTimeoutMultiplier=1,2*60000); }
+);
+
+// Task 13: Sip water (manual)
+addTask(13,'Sip water','Take a small sip of water and confirm', 8,
+  async ()=> {
+    return await fallbackConfirm();
+  },
+  async ()=>{ println('Punishment: -12 points.'); addScore(-12); }
+);
+
+// Task 14: Whistle (mic)
+addTask(14,'Whistle','Whistle for 2 seconds', 15,
+  async ()=> {
+    const rms = await measureSoundRMS(2000, 100).catch(()=>null);
+    if (rms === null) return await fallbackConfirm();
+    println(`RMS: ${rms.toFixed(4)}`);
+    return rms > 0.03;
+  },
+  async ()=>{ println('Punishment: -18 and double next punishment severity.'); addScore(-18); punishmentsSpecialApplied.add('harsh'); }
+);
+
+// Task 15: Cover camera for 2s
+addTask(15,'Cover camera','Cover camera lens for 2 seconds', 12,
+  async ()=> {
+    const lumBefore = await measureBrightness(600,200).catch(()=>null);
+    const lumDuring = await measureBrightness(1200,300).catch(()=>null);
+    if (lumDuring === null || lumBefore === null) return await fallbackConfirm();
+    return (lumDuring < lumBefore * 0.25);
+  },
+  async ()=>{ println('Punishment: -25 points.'); addScore(-25); }
+);
+
+// Task 16: Show red object
+addTask(16,'Show red','Point camera at a red object', 12,
+  async ()=> {
+    try {
+      await requestCamera();
+    } catch { return await fallbackConfirm(); }
+    const ctx = canvas.getContext('2d'); canvas.width = video.videoWidth||320; canvas.height = video.videoHeight||240;
+    let totalRed=0, samples=3;
+    for (let i=0;i<samples;i++){
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      const d = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+      let rsum=0;
+      for (let p=0;p<d.length;p+=4) rsum += d[p];
+      totalRed += rsum/(canvas.width*canvas.height);
+      await delay(350);
+    }
+    const avg = totalRed/samples;
+    println('Avg red intensity: '+avg.toFixed(1));
+    return avg > 70;
+  },
+  async ()=>{ println('Punishment: -20. Reset to previous checkpoint.'); addScore(-20); if (currentIndex>0) currentIndex--; }
+);
+
+// Task 17: Record a whisper (mic)
+addTask(17,'Whisper name','Whisper your codename into mic', 10,
+  async ()=> {
+    const rms = await measureSoundRMS(2500,200).catch(()=>null);
+    if (rms === null) return await fallbackConfirm();
+    println(`RMS: ${rms.toFixed(4)}`);
+    return rms > 0.01 && rms < 0.06;
+  },
+  async ()=>{ println('Punishment: -15 and mute rewards for next task.'); addScore(-15); punishmentsSpecialApplied.add('muteRewards'); setTimeout(()=>punishmentsSpecialApplied.delete('muteRewards'), 60000);}
+);
+
+// Task 18: Time-based (open at night) — check hour
+addTask(18,'Night check','This mission succeeds only if local time is between 22:00 and 05:00', 30,
+  async ()=> {
+    const h = new Date().getHours();
+    println('Local hour: '+h);
+    return (h >= 22 || h <= 5);
+  },
+  async ()=>{ println('Punishment: -25 and restart from task 10.'); addScore(-25); currentIndex = Math.max(9, currentIndex-1); }
+);
+
+// Task 19: Read QR-like contrasts
+addTask(19,'High contrast','Point camera at high contrast (black/white) pattern', 14,
+  async ()=> {
+    try {
+      await requestCamera();
+    } catch { return await fallbackConfirm(); }
+    const ctx = canvas.getContext('2d'); canvas.width = video.videoWidth||320; canvas.height = video.videoHeight||240;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const d = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    let dark=0, bright=0;
+    for (let p=0;p<d.length;p+=4){
+      const lum = 0.2126*d[p] + 0.7152*d[p+1] + 0.0722*d[p+2];
+      if (lum < 40) dark++; if (lum > 215) bright++;
+    }
+    const ratio = (dark+bright)/(canvas.width*canvas.height);
+    println('Contrast ratio: '+(ratio*100).toFixed(1)+'%');
+    return ratio > 0.18;
+  },
+  async ()=>{ println('Punishment: -18 and forced extra checksum task.'); addScore(-18); currentIndex--; }
+);
+
+// Task 20: Two claps detection
+addTask(20,'Two claps','Clap twice within 3 seconds', 16,
+  async ()=> {
+    const rmsSamples = [];
+    try { await requestMic(); } catch { return await fallbackConfirm(); }
+    const totalMs = 3000, interval=100, steps = totalMs/interval;
+    for (let i=0;i<steps;i++){
+      analyser.getByteTimeDomainData(dataArray);
+      let sum=0;
+      for (let j=0;j<dataArray.length;j++){ const v=(dataArray[j]-128)/128; sum += v*v; }
+      rmsSamples.push(Math.sqrt(sum/dataArray.length));
+      await delay(interval);
+    }
+    const peaks = rmsSamples.filter(x => x>0.08).length;
+    println('Peaks: '+peaks);
+    return peaks >= 2;
+  },
+  async ()=>{ println('Punishment: -20 points and one foul.'); addScore(-20); addFoul(); }
+);
+
+// Task 21: Quick reaction (press enter after GO)
+addTask(21,'Reaction test','When GO appears, press Enter quickly', 12,
+  async ()=> {
+    println('Get ready... GO in 1s');
+    await delay(1000);
+    println('GO!');
+    const ok = await waitForEnter(3000);
+    return ok;
+  },
+  async ()=>{ println('Punishment: -12 and skip next reward.'); addScore(-12); punishmentsSpecialApplied.add('skipNextReward'); setTimeout(()=>punishmentsSpecialApplied.delete('skipNextReward'), 30000); }
+);
+
+// Task 22: Balance test (stand on one leg short)
+addTask(22,'Balance','Stand on one leg for 8s (manual confirm)', 18,
+  async ()=> { return await fallbackConfirm(); },
+  async ()=>{ println('Punishment: -22 points.'); addScore(-22); }
+);
+
+// Task 23: Blink detect (heuristic)
+addTask(23,'Blink','Look at camera and blink once (heuristic)', 12,
+  async ()=> {
+    if (!faceDetectorAvailable) return await fallbackConfirm();
+    const r1 = await detectFace(1500); await delay(300);
+    const r2 = await detectFace(1500);
+    const p1 = r1.faces && r1.faces.length>0;
+    const p2 = r2.faces && r2.faces.length>0;
+    return (p1 && !p2);
+  },
+  async ()=>{ println('Punishment: -15 and log strike.'); addScore(-15); addFoul(); }
+);
+
+// Task 24: Phone face-down detect
+addTask(24,'Face-down','Place phone face-down for 4s', 10,
+  async ()=> {
+    const orient = await readOrientationOnce(3000);
+    if (!orient) return await fallbackConfirm();
+    const b = orient.beta || 0;
+    // heuristic: beta near 180 means face-down
+    return Math.abs(Math.abs(b)-180) < 30;
+  },
+  async ()=>{ println('Punishment: -18 and lock UI for 8s'); addScore(-18); lockedUntil = Date.now()+8000; lockUIFor(8000,'Locked due to failure'); }
+);
+
+// Task 25: Geo move short distance (~8m)
+addTask(25,'Move short distance','Move a few meters (GPS) within 20s', 25,
+  async ()=> {
+    const p1 = await getPosition(7000);
+    if (!p1) return await fallbackConfirm();
+    println(`Initial: ${p1.coords.latitude.toFixed(5)},${p1.coords.longitude.toFixed(5)}`);
+    await delay(12000);
+    const p2 = await getPosition(7000);
+    if (!p2) return false;
+    const dx = (p2.coords.latitude - p1.coords.latitude)*111000;
+    const dy = (p2.coords.longitude - p1.coords.longitude)*111000*Math.cos(p1.coords.latitude*Math.PI/180);
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    println(`Moved ~${Math.round(dist)} meters`);
+    return dist > 8;
+  },
+  async ()=>{ println('Punishment: -30 and restart from task 20'); addScore(-30); currentIndex = 19; }
+);
+
+// Task 26: Scan (type a short riddle answer)
+addTask(26,'Riddle','Riddle: What has keys but no locks?', 10,
+  async ()=> {
+    return await promptConfirm('Answer the riddle (one word):', 15000, 'piano|keyboard');
+  },
+  async ()=>{ println('Punishment: -10 and double next punishment severity.'); addScore(-10); punishmentsSpecialApplied.add('harsh'); }
+);
+
+// Task 27: Torch bright spike
+addTask(27,'Torch spike','Turn on torch to create a bright spike', 14,
+  async ()=> {
+    const lumBefore = await measureBrightness(800,200).catch(()=>null);
+    const spike = await measureBrightness(1200,150).catch(()=>null);
+    if (spike === null || lumBefore === null) return await fallbackConfirm();
+    return spike > lumBefore * 1.8;
+  },
+  async ()=>{ println('Punishment: -20 and reveal a hint to your opponents (simulated).'); addScore(-20); }
+);
+
+// Task 28: Multiple head turns (left and right)
+addTask(28,'Head left & right','Turn head left then right within 6s', 18,
+  async ()=> {
+    if (!faceDetectorAvailable) return await fallbackConfirm();
+    println('Look center, then left, then right.');
+    const left = await (async ()=>{ const r=await detectFace(2000); if (!r.faces) return false; const box=r.faces[0].boundingBox; const cx=box.x+box.width/2; return cx < (video.videoWidth||320)*0.4; })();
+    await delay(300);
+    const right = await (async ()=>{ const r=await detectFace(2000); if (!r.faces) return false; const box=r.faces[0].boundingBox; const cx=box.x+box.width/2; return cx > (video.videoWidth||320)*0.6; })();
+    return left && right;
+  },
+  async ()=>{ println('Punishment: -20 and add extra timed task next.'); addScore(-20); currentIndex += 0; /* extra handling in engine */ }
+);
+
+// Task 29: Read a short word on paper (manual fallback)
+addTask(29,'Read paper','Hold a short printed word to camera and confirm', 12,
+  async ()=> { return await fallbackConfirm(); },
+  async ()=>{ println('Punishment: -12 and reduce points earned next 2 tasks by 50%.'); addScore(-12); punishmentsSpecialApplied.add('halfNext2'); setTimeout(()=>punishmentsSpecialApplied.delete('halfNext2'), 2*60000); }
+);
+
+// Task 30: Green detect
+addTask(30,'Show green','Point camera at a green object', 12,
+  async ()=> {
+    try { await requestCamera(); } catch { return await fallbackConfirm(); }
+    const ctx = canvas.getContext('2d'); canvas.width=video.videoWidth||320; canvas.height=video.videoHeight||240;
+    let totalG=0; for (let s=0;s<3;s++){ ctx.drawImage(video,0,0,canvas.width,canvas.height); const d=ctx.getImageData(0,0,canvas.width,canvas.height).data; let gsum=0; for (let p=0;p<d.length;p+=4) gsum += d[p+1]; totalG += gsum/(canvas.width*canvas.height); await delay(300); }
+    const avgG = totalG/3; println('AvgG:'+avgG.toFixed(1)); return avgG > 70;
+  },
+  async ()=>{ println('Punishment: -18 and skip next reward.'); addScore(-18); punishmentsSpecialApplied.add('skipNextReward'); setTimeout(()=>punishmentsSpecialApplied.delete('skipNextReward'), 60000); }
+);
+
+// Task 31: Long cover (5s)
+addTask(31,'Long cover','Cover camera for ~5 seconds', 18,
+  async ()=> {
+    const lum = await measureBrightness(5200,400).catch(()=>null);
+    if (lum === null) return await fallbackConfirm();
+    return lum < 25;
+  },
+  async ()=>{ println('Punishment: -25 and penalty timer applied'); addScore(-25); nextTimeoutMultiplier = 0.7; setTimeout(()=>nextTimeoutMultiplier=1, 2*60000); }
+);
+
+// Task 32: Type a secret word fast (typing speed)
+addTask(32,'Type secret','Type the word "vault" within 6 seconds', 12,
+  async ()=> {
+    const ok = await promptConfirm('Type the word "vault":', 6000, 'vault');
+    return ok;
+  },
+  async ()=>{ println('Punishment: -12 and penalty: locked input 8s'); addScore(-12); lockedUntil = Date.now()+8000; lockUIFor(8000,'Locked due to failure'); }
+);
+
+// Task 33: Two-step audio (clap then whistle)
+addTask(33,'Clap then silence','Clap loudly then be silent for 3s', 18,
+  async ()=> {
+    const clap = await measureSoundRMS(1200,120).catch(()=>null);
+    await delay(300);
+    const silence = await measureSoundRMS(3000,200).catch(()=>null);
+    if (clap === null || silence === null) return await fallbackConfirm();
+    return clap > 0.08 && silence < 0.02;
+  },
+  async ()=>{ println('Punishment: -20 and strike'); addScore(-20); addFoul(); }
+);
+
+// Task 34: Rotate quickly
+addTask(34,'Quick rotate','Rotate device quickly now', 12,
+  async ()=> {
+    const a1 = await readOrientationOnce(800);
+    await delay(1000);
+    const a2 = await readOrientationOnce(800);
+    if (!a1 || !a2) return await fallbackConfirm();
+    return Math.abs((a2.alpha||0)-(a1.alpha||0)) > 40;
+  },
+  async ()=>{ println('Punishment: -12 and forced restart of current task'); addScore(-12); /* engine will re-run same task */ }
+);
+
+// Task 35: High noise (play music)
+addTask(35,'Play music','Play a short music/audio loudly near mic', 14,
+  async ()=> {
+    const rms = await measureSoundRMS(3500,200).catch(()=>null);
+    if (rms === null) return await fallbackConfirm();
+    return rms > 0.06;
+  },
+  async ()=>{ println('Punishment: -18 and score freeze for 20s'); addScore(-18); rewardsDisabled = 'freeze'; setTimeout(()=>{ if (rewardsDisabled==='freeze') rewardsDisabled=false; },20000); }
+);
+
+// Task 36: Torch blink (on/off)
+addTask(36,'Torch blink','Turn torch on/off quickly', 16,
+  async ()=> {
+    const before = await measureBrightness(800,200).catch(()=>null);
+    await delay(1200);
+    const after = await measureBrightness(1200,200).catch(()=>null);
+    if (before === null || after===null) return await fallbackConfirm();
+    return after > before * 1.8;
+  },
+  async ()=>{ println('Punishment: -20 and reveal a "mock leaderboard reset"'); addScore(-20); }
+);
+
+// Task 37: Slow rotation 180
+addTask(37,'Slow rotate 180','Slowly rotate device ~180 degrees', 15,
+  async ()=> {
+    const o1 = await readOrientationOnce(1200);
+    await delay(2000);
+    const o2 = await readOrientationOnce(1200);
+    if (!o1 || !o2) return await fallbackConfirm();
+    return Math.abs((o2.beta||0)-(o1.beta||0))>70;
+  },
+  async ()=>{ println('Punishment: -15 and next reward halved'); addScore(-15); punishmentsSpecialApplied.add('halfNext'); setTimeout(()=>punishmentsSpecialApplied.delete('halfNext'),60000); }
+);
+
+// Task 38: Composite (face + mic + motion)
+addTask(38,'Composite','Look at camera, shout once, then shake quickly', 30,
+  async ()=> {
+    const face = await detectFace(2000);
+    const mic = await measureSoundRMS(1200,100);
+    startMotionCounting(); motionCount=0; await delay(2200); stopMotionCounting();
+    const faceOk = face.faces && face.faces.length>0;
+    const micOk = mic !== null && mic > 0.08;
+    const moveOk = motionCount >= 2;
+    println(`face:${!!faceOk} mic:${(mic||0).toFixed(3)} move:${motionCount}`);
+    return faceOk && micOk && moveOk;
+  },
+  async ()=>{ println('Punishment: -35 and reset to Task 1'); addScore(-35); currentIndex = 0; }
+);
+
+// Task 39: Rapid steps burst
+addTask(39,'Rapid steps','Run on spot for 8 seconds', 18,
+  async ()=> {
+    startMotionCounting(); motionCount=0; await delay(8000); stopMotionCounting();
+    println(`Events: ${motionCount}`);
+    return motionCount >= 8;
+  },
+  async ()=>{ println('Punishment: -20 and forced 30s cooldown'); addScore(-20); lockedUntil = Date.now()+30000; lockUIFor(30000,'Cooldown due to failure'); }
+);
+
+// Task 40: Final composite & victory
+addTask(40,'Final composite','Final: camera face, mic shout, small shake', 50,
+  async ()=> {
+    const face = await detectFace(2000);
+    const mic = await measureSoundRMS(1200,100);
+    startMotionCounting(); motionCount=0; await delay(2200); stopMotionCounting();
+    const ok = face.faces && face.faces.length>0 && mic !== null && mic > 0.08 && motionCount >= 2;
+    return !!ok;
+  },
+  async ()=>{ println('Punishment: -50 and game reset to start'); addScore(-50); currentIndex = 0; }
+);
+
+// ---------- Helpers used in tasks ----------
+function delay(ms){ return new Promise(r=>setTimeout(r, ms)); }
+async function fallbackConfirm(){
+  println('Fallback: Please perform the action and type CONFIRM in the overlay (or use manual confirm).');
+  showOverlay('Perform the action now. Type CONFIRM in the input (top-left) and press Enter to confirm.');
+  // We'll wait for the user to press overlayClose after typing CONFIRM in page input; for simplicity, accept manual click
+  // Provide a manual button click as confirm:
+  return await manualConfirm(30000);
+}
+function manualConfirm(timeout=30000){
+  return new Promise(resolve=>{
+    const btn = document.createElement('button');
+    btn.innerText = 'I CONFIRM';
+    btn.style.padding='10px 12px';
+    btn.style.marginTop='12px';
+    overlay.appendChild(btn);
+    overlay.classList.remove('hidden');
+    const onClick = ()=>{ cleanup(); resolve(true); };
+    const cleanup = ()=>{ btn.removeEventListener('click', onClick); overlay.removeChild(btn); overlay.classList.add('hidden'); };
+    btn.addEventListener('click', onClick);
+    setTimeout(()=>{ try{ cleanup(); }catch{}; resolve(false); }, timeout);
+  });
+}
+function waitForEnter(timeout=3000){
+  return new Promise(resolve=>{
+    const handler = (e)=>{ if (e.key==='Enter'){ cleanup(); resolve(true); } };
+    const cleanup = ()=>{ document.removeEventListener('keydown', handler); };
+    document.addEventListener('keydown', handler);
+    setTimeout(()=>{ cleanup(); resolve(false); }, timeout);
+  });
+}
+function promptConfirm(message, timeout=10000, expectedRegex='.*'){
+  return new Promise(resolve=>{
+    const answer = prompt(message);
+    if (answer === null) return resolve(false);
+    const re = new RegExp('^(' + expectedRegex + ')$','i');
+    resolve(re.test(answer.trim()));
+  });
+}
+function readOrientationOnce(timeout=1600){
+  return new Promise(resolve=>{
+    function handler(e){ window.removeEventListener('deviceorientation', handler); resolve({alpha:e.alpha, beta:e.beta, gamma:e.gamma}); }
+    window.addEventListener('deviceorientation', handler);
+    setTimeout(()=>{ window.removeEventListener('deviceorientation', handler); resolve(null); }, timeout);
+  });
+}
+
+// lock UI visuals
+function lockUIFor(ms, reason){
+  println(`UI locked for ${Math.ceil(ms/1000)}s: ${reason}`);
+  document.getElementById('screen').classList.add('locked');
+  setTimeout(()=>{ document.getElementById('screen').classList.remove('locked'); println('UI unlocked.'); }, ms);
+}
+
+// overlay close action
+overlayClose.addEventListener('click', ()=>{ overlay.classList.add('hidden'); });
+
+// ---------- Engine: run tasks & punishments ----------
+let engineRunning = false;
+let autoAdvanceTimer = null;
+
+async function runCurrentTask(){
+  if (Date.now() < lockedUntil) { println('Input locked — wait.'); return; }
+  if (currentIndex >= tasks.length) { println('All tasks finished. Final Score: '+score); return; }
+  const t = tasks[currentIndex];
+  println('--- TASK '+t.id+' : '+t.title+' ---');
+  println(t.desc || '');
+  // check special disable flags
+  if (punishmentsSpecialApplied.has('disableGPS') && t.title.toLowerCase().includes('geo')) {
+    println('This task is temporarily disabled by punishment.');
+    await applyPunishmentFor(t); currentIndex++; return;
+  }
+  try {
+    const ok = await t.checkFn();
+    if (ok){
+      // apply rewards (check reward-halving, skip flags)
+      let gain = t.reward || 10;
+      if (punishmentsSpecialApplied.has('halfNext') || punishmentsSpecialApplied.has('halfNext2')) gain = Math.ceil(gain/2);
+      if (punishmentsSpecialApplied.has('skipNextReward')) gain = 0;
+      if (rewardsDisabled === 'halfRewards') gain = Math.ceil(gain/2);
+      if (rewardsDisabled === 'freeze') gain = 0;
+      if (punishmentsSpecialApplied.has('muteRewards')) gain = 0;
+      addScore(gain);
+      println(`✅ Success. Reward: +${gain}`);
+    } else {
+      await applyPunishmentFor(t);
+    }
+  } catch(e){
+    println('Error running check — falling back to manual confirm.');
+    const ok = await fallbackConfirm();
+    if (ok){ addScore(t.reward || 10); println('✅ Success (manual confirm).'); }
+    else await applyPunishmentFor(t);
+  }
+
+  // advance index
+  currentIndex++;
+  // auto-advance or wait for Next based on multiplier/locked state
+  if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
+  const baseDelay = 3000;
+  const delayMs = Math.max(2000, Math.floor(baseDelay * (nextTimeoutMultiplier || 1) * 1000 / 1000));
+  // we let player press Next; if they don't, auto advance after delay * 2 to be generous
+  autoAdvanceTimer = setTimeout(()=>{ println('(Auto-advancing)'); runNext(); }, delayMs*4);
+}
+
+async function applyPunishmentFor(task){
+  addFoul();
+  // determine base penalty severity
+  let severity = punishmentsSpecialApplied.has('harsh') ? 2 : 1;
+  // call task-specific punishment
+  try {
+    await task.punishmentFn();
+  } catch(e){
+    println('Punishment error: '+(e && e.message ? e.message : e));
+    addScore(-10*severity);
+  }
+  // escalate if too many fouls
+  if (foulCount >= 3 && foulCount < 5) {
+    println('⚠️ WARNING: Multiple fouls detected. Further penalties possible.');
+  } else if (foulCount >= 5) {
+    println('🚨 Game Over — too many fouls. Resetting game.');
+    await delay(800);
+    resetGame();
+  }
+}
+
+// next button
+async function runNext(){ if (Date.now() < lockedUntil) { println('Locked: wait...'); return; } await runCurrentTask(); }
+
+// start game: ask permissions (on user gesture)
+startBtn.addEventListener('click', async ()=>{
+  println('Requesting permissions (camera & mic & motion) — please allow when prompted.');
+  try { await requestCamera(); } catch(e){ println('(camera unavailable)'); }
+  try { await requestMic(); } catch(e){ println('(mic unavailable)'); }
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+    try{ const r = await DeviceMotionEvent.requestPermission(); println('[permission] Device motion: '+r); } catch(e){ println('[permission] Device motion denied'); }
+  }
+  println('Permissions step done. Press Next Task to begin or use Start Game -> Next sequence.');
+});
+
+// Next Task button
+nextBtn.addEventListener('click', async ()=>{ await runNext(); });
+
+// missions list
+missionsBtn.addEventListener('click', ()=>{ println('Missions:'); tasks.forEach(t=>println(` ${t.id}. ${t.title}`)); });
+
+// reset
+resetBtn.addEventListener('click', ()=>{ if (confirm('Reset game progress?')) resetGame(); });
+
+// keyboard Enter mapping (for Next)
+document.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ if (Date.now() >= lockedUntil) runNext(); else println('Locked'); } });
+
+// manual confirm helper used in punishments
+async function manualActionRequire(promptMsg, times=1, timeoutPer=20000){
+  for (let i=0;i<times;i++){
+    println(promptMsg + ` (${i+1}/${times})`);
+    const ok = await manualConfirm(timeoutPer);
+    if (!ok) { println('Timeout during required action.'); return false; }
+  }
+  return true;
+}
+
+// simple promptConfirm via browser prompt (used rarely)
+async function promptConfirm(promptText, timeout=10000, expectedRegex='.*'){
+  return new Promise(resolve=>{
+    const res = prompt(promptText);
+    if (res === null) return resolve(false);
+    const re = new RegExp(expectedRegex,'i');
+    resolve(re.test(res.trim()));
+  });
+}
+
+// reset game
+function resetGame(){
+  setScore(0); foulCount = 0; foulEl.textContent = foulCount; currentIndex = 0; println('Game reset. Score cleared.');
+  punishmentsSpecialApplied.clear(); rewardsDisabled=false; nextTimeoutMultiplier=1; lockedUntil = 0;
+}
+
+// waitFor overlay confirm (not used direct)
+function waitOverlayConfirm(timeout=20000){
+  return new Promise(resolve=>{
+    const btn = overlayClose;
+    overlay.classList.remove('hidden');
+    const handler = ()=>{ cleanup(); resolve(true); };
+    function cleanup(){ btn.removeEventListener('click', handler); overlay.classList.add('hidden'); }
+    btn.addEventListener('click', handler);
+    setTimeout(()=>{ cleanup(); resolve(false); }, timeout);
+  });
+}
+
+// run initial instructions
+println('Sensor Task Game — 40 Missions');
+println('Click "Start Game" to request permissions (camera, mic, motion).');
+println('Then use "Next Task" or press Enter to run tasks one by one.');
+println('Score rewards & unique punishments are applied per task.');
+println('Good luck!');
+
+// small helper for fallback confirm via prompt overlay
+async function promptConfirmUI(text, timeout=20000){
+  showOverlay(text + '\nClick Confirm when done.');
+  const ok = await manualConfirm(timeout);
+  overlay.classList.add('hidden');
+  return ok;
+}
+
+// helper: promptConfirm via manual confirm button used earlier
+async function promptConfirmManual(message, timeout=20000){
+  println(message);
+  const ok = await manualConfirm(timeout);
+  return ok;
+}
+
+// helper: manualConfirm bound earlier is enough
+// finalize
+
+</script>
 </body>
 </html>
